@@ -1,117 +1,143 @@
-const html404 = `<!DOCTYPE html>
-<body>
+const randomStringLength = 6
+const html_200 = `<!Doctype html><html><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no" name="viewport">
+</head><body>
+  <label>URL:</label>
+  <input type="url" name="url" placeholder="https://example.com" pattern="^http(s)?://.*">
+  <button>Button</button>
+  <div></div>
+  <script>
+    const button = document.querySelector('button')
+    const input = document.querySelector('input')
+    const div = document.querySelector('div')
+    button.addEventListener('click', () => handle())
+    input.addEventListener('keyup', ({key}) => {
+      if (key === 'Enter') handle()
+    })
+    function handle() {
+      const url = input.value
+      console.log(url)
+      if (/^http(s)?:/.test(url)) {
+        fetch('/api', {
+          method: 'POST',
+          body: JSON.stringify({ url: url }),
+          headers: {
+            'content-type': 'application/json'
+          }
+        }).then(res => res.json())
+          .catch(e => {
+            console.error('Error:', e)
+          })
+          .then(res => {
+            console.log(res)
+            if (!res.error) {
+              const href = location.href + res.key
+              div.innerHTML = '<p></p><a href="' + href + '" target="_blank">' + href + '</a></p>'
+            } else {
+              div.innerHTML = '<p style="color: red;">Error: ' + res.error.message + '</p>'
+            }
+          })
+      }
+    }
+  </script>
+</body></html>`
+const html_404 = `<!Doctype html><html><body>
   <h1>404 Not Found.</h1>
   <p>The url you visit is not found.</p>
-</body>`
+</body></html>`
 
-
-async function randomString(len) {
-　　len = len || 6;
-　　let $chars = 'ABCDEFGHJKMNPQRSTWXYZabcdefhijkmnprstwxyz2345678';    /****默认去掉了容易混淆的字符oOLl,9gq,Vv,Uu,I1****/
-　　let maxPos = $chars.length;
-　　let result = '';
-　　for (i = 0; i < len; i++) {
-　　　　result += $chars.charAt(Math.floor(Math.random() * maxPos));
-　　}
-　　return result;
-}
-async function checkURL(URL){
-    let str=URL;
-    let Expression=/http(s)?:\/\/([\w-]+\.)+[\w-]+(\/[\w- .\/?%&=]*)?/;
-    let objExp=new RegExp(Expression);
-    if(objExp.test(str)==true){
-      if (str[0] == 'h')
-        return true;
-      else
-        return false;
-    }else{
-        return false;
-    }
-} 
-async function save_url(URL){
-    let random_key=await randomString()
-    let is_exist=await LINKS.get(random_key)
-    console.log(is_exist)
-    if (is_exist == null)
-        return await LINKS.put(random_key, URL),random_key
-    else
-        save_url(URL)
-}
-async function handleRequest(request) {
-  console.log(request)
-  if (request.method === "POST") {
-    let req=await request.json()
-    console.log(req["url"])
-    if(!await checkURL(req["url"])){
-    return new Response(`{"status":500,"key":": Error: Url illegal."}`, {
-      headers: {
-      "content-type": "text/html;charset=UTF-8",
-      "Access-Control-Allow-Origin":"*",
-      "Access-Control-Allow-Methods": "POST",
-      },
-    })}
-    let stat,random_key=await save_url(req["url"])
-    console.log(stat)
-    if (typeof(stat) == "undefined"){
-      return new Response(`{"status":200,"key":"/`+random_key+`"}`, {
-      headers: {
-      "content-type": "text/html;charset=UTF-8",
-      "Access-Control-Allow-Origin":"*",
-      "Access-Control-Allow-Methods": "POST",
-      },
-    })
-    }else{
-      return new Response(`{"status":200,"key":": Error:Reach the KV write limitation."}`, {
-      headers: {
-      "content-type": "text/html;charset=UTF-8",
-      "Access-Control-Allow-Origin":"*",
-      "Access-Control-Allow-Methods": "POST",
-      },
-    })}
-  }else if(request.method === "OPTIONS"){  
-      return new Response(``, {
-      headers: {
-      "content-type": "text/html;charset=UTF-8",
-      "Access-Control-Allow-Origin":"*",
-      "Access-Control-Allow-Methods": "POST",
-      },
-    })
-
-  }
-
-  const requestURL = new URL(request.url)
-  const path = requestURL.pathname.split("/")[1]
-  console.log(path)
-  if(!path){
-
-    const html= await fetch("https://xytom.github.io/Url-Shorten-Worker/index.html")
-    
-    return new Response(await html.text(), {
-    headers: {
-      "content-type": "text/html;charset=UTF-8",
-    },
-  })
-  }
-  const value = await LINKS.get(path)
-  console.log(value)
-  
-
-  const location = value
-  if (location) {
-    return Response.redirect(location, 302)
-    
-  }
-  // If request not in kv, return 404
-  return new Response(html404, {
-    headers: {
-      "content-type": "text/html;charset=UTF-8",
-    },
-    status: 404
-  })
-}
-
-
-
-addEventListener("fetch", async event => {
+addEventListener('fetch', async event => {
   event.respondWith(handleRequest(event.request))
 })
+
+async function handleRequest(request) {
+  const path = new URL(request.url).pathname
+  console.log(request.url, path)
+
+  if (path === '/api' && request.method === 'POST') {
+    const req = await request.json()
+    console.log(req.url)
+
+    if (!checkURL(req.url)) {
+      return new Response(JSON.stringify({
+        error: {
+          code: 403,
+          message: 'Url illegal.',
+        }
+      }), {
+        status: 403,
+        headers: {
+          'content-type': 'application/json',
+          'access-control-allow-origin': '*',
+        },
+      })
+    }
+    const random_key = await saveURL(req.url)
+    console.log(random_key)
+    if (random_key) {
+      return new Response(JSON.stringify({
+        key: random_key
+      }), {
+        headers: {
+          'content-type': 'application/json',
+          'access-control-allow-origin': '*',
+        },
+      })
+    } else {
+      return new Response(JSON.stringify({
+        error: {
+          code: 500,
+          message: 'Reach the KV write limitation.',
+        }
+      }), {
+        status: 500,
+        headers: {
+          'content-type': 'application/json',
+          'access-control-allow-origin': '*',
+        },
+      })
+    }
+  }
+
+  if (path === '/' || !path) {
+    return new Response(html_200, {
+      headers: {
+        'content-type': 'text/html',
+      },
+    })
+  }
+
+  const key = path.split('/')[1]
+  if (key.length === randomStringLength) {
+    const location = await LINKS.get(key, { cacheTtl: 60 * 60 * 24 })
+    console.log(location)
+    if (location) return Response.redirect(location, 302)
+  }
+
+  return new Response(html_404, {
+    status: 404,
+    headers: {
+      'content-type': 'text/html',
+    },
+  })
+}
+
+function randomString() {
+  const chars = 'ABCDEFGHJKMNPQRSTWXYZabcdefhijkmnprstwxyz2345678'    /****默认去掉了容易混淆的字符oOLl,9gq,Vv,Uu,I1****/
+  const maxPos = chars.length
+  let result = ''
+  for (i = 0; i < randomStringLength; i++) {
+    result += chars.charAt(Math.floor(Math.random() * maxPos))
+  }
+  return result
+}
+
+function checkURL(url) {
+  return /http(s)?:\/\/([\w-]+\.)+[\w-]+(\/[\w- .\/?%&=]*)?/.test(url) && url.length <= 1024 * 100
+}
+
+async function saveURL(url) {
+  const random_key = randomString()
+  return typeof (await LINKS.put(random_key, url)) === 'undefined' ? random_key : false
+}
