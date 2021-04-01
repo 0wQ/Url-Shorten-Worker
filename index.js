@@ -1,7 +1,6 @@
 const randomStringLength = 6
-const html_200 = `<!Doctype html><html><head>
-<meta charset="utf-8">
-<meta content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no" name="viewport">
+const html_200 = `<!Doctype html><html><head><meta content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no" name="viewport">
+<title>Short URL</title>
 </head><body>
   <label>URL:</label>
   <input type="url" name="url" placeholder="https://example.com" pattern="^http(s)?://.*">
@@ -52,13 +51,61 @@ addEventListener('fetch', async event => {
 })
 
 async function handleRequest(request) {
-  const path = new URL(request.url).pathname
-  console.log(request.url, path)
+  const cache = caches.default
+  let response = await cache.match(request)
+  if (!response) {
+    const path = new URL(request.url).pathname
+    console.log(request.url, path)
+    switch (path) {
+      case '':
+      case '/':
+      case '/index.html':
+        response = new Response(html_200, {
+          headers: {
+            'content-type': 'text/html',
+            'cache-control': 's-maxage=3600',
+          },
+        })
+        break
+      case '/api':
+        response = await handleApiRequest(request)
+        break
+      default:
+        response = await handleRedirectRequest(path)
+        if (response) {
+          response.headers.append('cache-control', 's-maxage=60')
+        } else {
+          response = new Response(html_404, {
+            status: 404,
+            headers: {
+              'content-type': 'text/html',
+              'cache-control': 's-maxage=60',
+            },
+          })
+        }
+    }
+    cache.put(request, response.clone())
+  }
+  return response
+  
+  async function handleApiRequest(request) {
+    if (request.method !== 'POST') {
+      return new Response(JSON.stringify({
+        error: {
+          code: 405,
+          message: 'Method not allowed.',
+        }
+      }), {
+        status: 405,
+        headers: {
+          'content-type': 'application/json',
+          'access-control-allow-origin': '*',
+        },
+      })
+    }
 
-  if (path === '/api' && request.method === 'POST') {
     const req = await request.json()
     console.log(req.url)
-
     if (!checkURL(req.url)) {
       return new Response(JSON.stringify({
         error: {
@@ -73,6 +120,7 @@ async function handleRequest(request) {
         },
       })
     }
+    
     const random_key = await saveURL(req.url)
     console.log(random_key)
     if (random_key) {
@@ -82,6 +130,7 @@ async function handleRequest(request) {
         headers: {
           'content-type': 'application/json',
           'access-control-allow-origin': '*',
+          'cache-control': 's-maxage=30',
         },
       })
     } else {
@@ -99,45 +148,30 @@ async function handleRequest(request) {
       })
     }
   }
-
-  if (path === '/' || !path) {
-    return new Response(html_200, {
-      headers: {
-        'content-type': 'text/html',
-      },
-    })
-  }
-
-  const key = path.split('/')[1]
-  if (key.length === randomStringLength) {
-    const location = await LINKS.get(key, { cacheTtl: 60 * 60 * 24 })
+  
+  async function handleRedirectRequest(path) {
+    const key = path.split('/')[1]
+    const location = await LINKS.get(key, { cacheTtl: 60 * 5 })
     console.log(location)
     if (location) return Response.redirect(location, 302)
   }
 
-  return new Response(html_404, {
-    status: 404,
-    headers: {
-      'content-type': 'text/html',
-    },
-  })
-}
-
-function randomString() {
-  const chars = 'ABCDEFGHJKMNPQRSTWXYZabcdefhijkmnprstwxyz2345678'    /****默认去掉了容易混淆的字符oOLl,9gq,Vv,Uu,I1****/
-  const maxPos = chars.length
-  let result = ''
-  for (i = 0; i < randomStringLength; i++) {
-    result += chars.charAt(Math.floor(Math.random() * maxPos))
+  function randomString() {
+    const chars = 'ABCDEFGHJKMNPQRSTWXYZabcdefhijkmnprstwxyz2345678' /****默认去掉了容易混淆的字符oOLl,9gq,Vv,Uu,I1****/
+    const maxPos = chars.length
+    let result = ''
+    for (i = 0; i < randomStringLength; i++) {
+      result += chars.charAt(Math.floor(Math.random() * maxPos))
+    }
+    return result
   }
-  return result
-}
-
-function checkURL(url) {
-  return /http(s)?:\/\/([\w-]+\.)+[\w-]+(\/[\w- .\/?%&=]*)?/.test(url) && url.length <= 1024 * 100
-}
-
-async function saveURL(url) {
-  const random_key = randomString()
-  return typeof (await LINKS.put(random_key, url)) === 'undefined' ? random_key : false
+  
+  function checkURL(url) {
+    return url.length <= 1024 * 100 && /http(s)?:\/\/([\w-]+\.)+[\w-]+(\/[\w- .\/?%&=]*)?/.test(url)
+  }
+  
+  async function saveURL(url) {
+    const random_key = randomString()
+    return typeof(await LINKS.put(random_key, url)) === 'undefined' ? random_key : false
+  }
 }
